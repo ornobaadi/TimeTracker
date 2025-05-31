@@ -1,0 +1,360 @@
+/* TimeTracker Pro - Clean Minimal Design */
+.archivo {
+    font-family: "Archivo", sans-serif;
+}
+
+
+:root {
+    --primary: #007AFF;
+    --success: #34C759;
+    --danger: #FF3B30;
+    --warning: #FF9500;
+    --text-primary: #1D1D1F;
+    --text-secondary: #86868B;
+    --text-muted: #C7C7CC;
+    --bg-primary: #FFFFFF;
+    --bg-secondary: #F2F2F7;
+    --bg-tertiary: #FFFFFF;
+    --border: #E5E5EA;
+    --border-light: #F2F2F7;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 4px 20px rgba(0, 0, 0, 0.1);
+    --radius: 12px;
+    --radius-lg: 16px;
+    --transition: all 0.2s ease;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+    width: 380px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.4;
+    font-size: 14px;
+}
+
+.container {
+    max-height: 600px;
+    overflow-y: auto;
+    background: var(--bg-primary);
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.app-icon {
+    font-size: 16px;
+}
+
+.app-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.tracking-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    box-shadow: var(--shadow);
+}
+
+.tracking-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lg);
+}
+
+.tracking-btn.tracking {
+    background: var(--danger);
+}
+
+/* Top Section with Inline Layout */
+.top-section {
+    padding: 20px;
+    background: var(--bg-primary);
+}
+
+.section-header-inline {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+}
+
+.section-header-inline > div {
+    flex: 1;
+}
+
+.today-total-inline {
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.today-total-inline .total-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.today-total-inline .total-time-large {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -1px;
+}
+
+.section-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+
+.top-site {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-primary);
+    padding: 16px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+
+.site-favicon-large {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.site-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.site-domain {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.site-time-large {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Sites List */
+.sites-section {
+    padding: 0 20px 20px;
+    background: var(--bg-primary);
+}
+
+.sites-list-clean {
+    background: var(--bg-primary);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.site-item-clean {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-light);
+    transition: var(--transition);
+}
+
+.site-item-clean:last-child {
+    border-bottom: none;
+}
+
+.site-item-clean:hover {
+    background: var(--bg-secondary);
+}
+
+.site-favicon-small {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.site-favicon-small img {
+    width: 100%;
+    height: 100%;
+    border-radius: 6px;
+    object-fit: cover;
+}
+
+.site-details-clean {
+    flex: 1;
+    min-width: 0;
+}
+
+.site-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.site-time-small {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+/* Footer */
+.footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-light);
+    background: var(--bg-primary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.dashboard-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    transition: var(--transition);
+}
+
+.dashboard-btn:hover {
+    background: var(--bg-secondary);
+}
+
+.dashboard-icon {
+    font-size: 16px;
+}
+
+.clear-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    transition: var(--transition);
+}
+
+.clear-btn:hover {
+    color: var(--danger);
+    background: var(--bg-secondary);
+}
+
+/* Notification */
+.notification {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    left: 16px;
+    background: var(--primary);
+    color: white;
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 1000;
+    text-align: center;
+    box-shadow: var(--shadow-lg);
+}
+
+/* Session Timer Section */
+.session-timer-section {
+    text-align: center;
+    padding: 20px 20px 24px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.session-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.session-time-display {
+    font-size: 42px;
+    font-weight: 700;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -2px;
+}
+
+/* Responsive */
+@media (max-width: 400px) {
+    body {
+        width: 360px;
+    }
+} 

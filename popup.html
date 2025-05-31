@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TimeTracker Pro</title>
+    <link rel="stylesheet" href="popup.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,100..900;1,100..900&display=swap');
+        </style>
+</head>
+<body class="archivo">
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <span class="app-icon">⏰</span>
+                <span class="app-name">TimeTracker</span>
+            </div>
+            <div class="header-right">
+                <button class="tracking-btn" id="trackingBtn">
+                    <span class="btn-icon" id="trackingIcon"></span>
+                    <span class="btn-text" id="trackingText">Start Tracking</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Session Timer -->
+        <section class="session-timer-section" id="sessionTimerSection" style="display: none;">
+            <div class="session-label">SESSION TIME</div>
+            <div class="session-time-display" id="sessionTimeDisplay">0:00:00</div>
+        </section>
+
+        <!-- Top Websites -->
+        <section class="top-section">
+            <div class="section-header-inline">
+                <div>
+                    <div class="section-label">TOP WEBSITE</div>
+                    <div class="top-site" id="topSite">
+                        <div class="site-favicon-large">📄</div>
+                        <div class="site-info">
+                            <div class="site-domain">No data yet</div>
+                            <div class="site-time-large">0:00</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="today-total-inline">
+                    <div class="total-label">TODAY'S TOTAL</div>
+                    <div class="total-time-large" id="totalTimeLarge">0:00</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Website List -->
+        <section class="sites-section">
+            <div class="sites-list-clean" id="sitesList">
+                <!-- Sites will be populated here -->
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <button class="dashboard-btn" id="dashboardBtn">
+                <span class="dashboard-icon">⋯</span>
+                <span>Open Dashboard</span>
+            </button>
+            <button class="clear-btn" id="clearBtn">Clear Data</button>
+        </footer>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html> 
