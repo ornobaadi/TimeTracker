@@ -1,6 +1,3 @@
-// TimeTracker Pro - Content Script
-// This script runs on every page to help track user engagement
-
 let isPageVisible = !document.hidden;
 let lastVisibilityChange = Date.now();
 

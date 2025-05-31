@@ -5,6 +5,8 @@ class TimeTrackerUI {
         this.sessionStartTime = null;
         this.dataUpdateInterval = null;
         this.sessionTimerInterval = null;
+        this.lastUpdateTime = null;
+        this.lastUpdateInterval = null;
         this.init();
     }
 
@@ -13,6 +15,7 @@ class TimeTrackerUI {
         await this.updateStatus();
         await this.loadData();
         this.startTimerUpdates();
+        this.startLastUpdatedTimer();
     }
 
     setupEventListeners() {
@@ -86,18 +89,43 @@ class TimeTrackerUI {
     }
 
     startSessionTimer() {
-        // Update session timer every second for real-time stopwatch
+        // Clear any existing timer
+        this.stopSessionTimer();
+        
+        // Update session timer every 500ms for smooth real-time display
         this.sessionTimerInterval = setInterval(() => {
-            if (this.isTracking && this.sessionStartTime) {
-                const elapsed = Date.now() - this.sessionStartTime;
-                document.getElementById('sessionTimeDisplay').textContent = this.formatStopwatchTime(elapsed);
-            }
-        }, 1000);
+            this.updateSessionDisplay();
+        }, 500);
         
         // Update immediately
-        if (this.sessionStartTime) {
-            const elapsed = Date.now() - this.sessionStartTime;
-            document.getElementById('sessionTimeDisplay').textContent = this.formatStopwatchTime(elapsed);
+        this.updateSessionDisplay();
+    }
+
+    async updateSessionDisplay() {
+        if (!this.isTracking || !this.sessionStartTime) {
+            document.getElementById('sessionTimeDisplay').textContent = '0:00:00';
+            return;
+        }
+
+        try {
+            // Use local calculation for smooth display, verify with backend periodically
+            const localSessionTime = Date.now() - this.sessionStartTime;
+            document.getElementById('sessionTimeDisplay').textContent = this.formatStopwatchTime(localSessionTime);
+            
+            // Verify with backend every 10 seconds
+            if (!this.lastBackendSync || Date.now() - this.lastBackendSync > 10000) {
+                const stats = await this.sendMessage({ action: 'getSessionStats' });
+                if (stats && stats.sessionTime) {
+                    // Sync with backend time if there's a significant difference
+                    const timeDiff = Math.abs(localSessionTime - stats.sessionTime);
+                    if (timeDiff > 2000) { // More than 2 seconds difference
+                        this.sessionStartTime = Date.now() - stats.sessionTime;
+                    }
+                }
+                this.lastBackendSync = Date.now();
+            }
+        } catch (error) {
+            console.error('Error updating session display:', error);
         }
     }
 
@@ -120,10 +148,15 @@ class TimeTrackerUI {
     async handleClockIn() {
         try {
             await this.sendMessage({ action: 'startTracking' });
+            
+            // Get the actual start time from backend for accuracy
+            const status = await this.sendMessage({ action: 'getStatus' });
             this.isTracking = true;
-            this.sessionStartTime = Date.now();
+            this.sessionStartTime = status.sessionStartTime;
+            this.lastBackendSync = Date.now();
             
             this.updateUI();
+            await this.loadData();
             this.showNotification('Tracking started!', 'success');
         } catch (error) {
             console.error('Error starting tracking:', error);
@@ -136,6 +169,7 @@ class TimeTrackerUI {
             await this.sendMessage({ action: 'stopTracking' });
             this.isTracking = false;
             this.sessionStartTime = null;
+            this.lastBackendSync = null;
             
             this.updateUI();
             await this.loadData();
@@ -148,19 +182,34 @@ class TimeTrackerUI {
 
     async loadData() {
         try {
-            const [todayData, currentSession] = await Promise.all([
+            const [todayData, currentSession, sessionStats] = await Promise.all([
                 this.sendMessage({ action: 'getTodayData' }),
-                this.isTracking ? this.sendMessage({ action: 'getCurrentSession' }) : null
+                this.isTracking ? this.sendMessage({ action: 'getCurrentSession' }) : null,
+                this.isTracking ? this.sendMessage({ action: 'getSessionStats' }) : null
             ]);
 
-            await this.renderData(todayData, currentSession);
+            this.lastUpdateTime = Date.now();
+            this.updateLastUpdatedDisplay();
+            await this.renderData(todayData, currentSession, sessionStats);
         } catch (error) {
             console.error('Error loading data:', error);
         }
     }
 
-    async renderData(todayData, currentSession) {
-        // Clone data to include current session
+    async renderData(todayData, currentSession, sessionStats) {
+        // Use accurate session stats for today's total if available
+        let totalTime = 0;
+        
+        if (sessionStats && sessionStats.todayTotal !== undefined) {
+            // Use the accurate backend calculation that includes unsaved time
+            totalTime = sessionStats.todayTotal;
+        } else {
+            // Fallback to summing saved data only
+            const sites = Object.entries(todayData);
+            totalTime = sites.reduce((sum, [, siteData]) => sum + siteData.time, 0);
+        }
+
+        // Clone data to include current session for site display
         let allData = { ...todayData };
         
         // Add current session data if tracking
@@ -174,25 +223,33 @@ class TimeTrackerUI {
                     visits: 0
                 };
             }
-            // Add current session time to saved time
+            // Add current session time to saved time for this site
             allData[domain] = {
                 ...allData[domain],
-                time: allData[domain].time + currentSession.currentTime,
+                time: allData[domain].time + (currentSession.timeSinceLastSave || 0),
                 title: currentSession.title,
                 favicon: currentSession.favicon || allData[domain].favicon
             };
         }
 
         const sites = Object.entries(allData);
-        const totalTime = sites.reduce((sum, [, siteData]) => sum + siteData.time, 0);
 
-        // Update today's total
+        // Update today's total with accurate timing
         document.getElementById('totalTimeLarge').textContent = this.formatTimeHHMM(totalTime);
 
         // Update top site
         if (sites.length > 0) {
             sites.sort(([,a], [,b]) => b.time - a.time);
             this.updateTopSite(sites[0]);
+        } else {
+            // Show default when no data
+            document.getElementById('topSite').innerHTML = `
+                <div class="site-favicon-large">📄</div>
+                <div class="site-info">
+                    <div class="site-domain">No data yet</div>
+                    <div class="site-time-large">0:00</div>
+                </div>
+            `;
         }
 
         // Update sites list
@@ -252,6 +309,31 @@ class TimeTrackerUI {
         sitesList.innerHTML = sitesHtml;
     }
 
+    updateLastUpdatedDisplay() {
+        if (!this.lastUpdateTime) return;
+        
+        const secondsAgo = Math.floor((Date.now() - this.lastUpdateTime) / 1000);
+        const lastUpdatedElement = document.getElementById('lastUpdated');
+        
+        if (!lastUpdatedElement) return;
+        
+        if (secondsAgo < 5) {
+            lastUpdatedElement.textContent = 'Last updated: Just now';
+        } else if (secondsAgo < 60) {
+            lastUpdatedElement.textContent = `Last updated: ${secondsAgo}s ago`;
+        } else {
+            const minutesAgo = Math.floor(secondsAgo / 60);
+            lastUpdatedElement.textContent = `Last updated: ${minutesAgo}m ago`;
+        }
+    }
+
+    startLastUpdatedTimer() {
+        // Update the "last updated" display every 5 seconds
+        this.lastUpdateInterval = setInterval(() => {
+            this.updateLastUpdatedDisplay();
+        }, 5000);
+    }
+
     async clearAllData() {
         if (confirm('Clear all tracking data?\n\nThis action cannot be undone.')) {
             try {
@@ -305,20 +387,26 @@ class TimeTrackerUI {
     }
 
     startTimerUpdates() {
-        // Update website data every 7 seconds (5-10 second delay as requested)
+        // Update website data every 3 seconds for faster responsiveness
         this.dataUpdateInterval = setInterval(async () => {
             if (this.isTracking) {
                 await this.loadData();
             }
-        }, 7000);
+        }, 3000);
     }
 
     stopTimerUpdates() {
         if (this.dataUpdateInterval) {
             clearInterval(this.dataUpdateInterval);
+            this.dataUpdateInterval = null;
         }
         if (this.sessionTimerInterval) {
             clearInterval(this.sessionTimerInterval);
+            this.sessionTimerInterval = null;
+        }
+        if (this.lastUpdateInterval) {
+            clearInterval(this.lastUpdateInterval);
+            this.lastUpdateInterval = null;
         }
     }
 }

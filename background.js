@@ -6,6 +6,7 @@ class TimeTracker {
     this.activeTab = null;
     this.siteStartTime = null;
     this.saveInterval = null;
+    this.lastSaveTime = null; // Track when we last saved to avoid data loss
     this.init();
   }
 
@@ -74,7 +75,7 @@ class TimeTracker {
   }
 
   async handleTabChange(tabId) {
-    // Save time for previous site
+    // Save time for previous site using high-precision timing
     if (this.activeTab && this.siteStartTime) {
       await this.saveTimeSpent();
     }
@@ -89,19 +90,24 @@ class TimeTracker {
         }
         
         this.activeTab = tab;
-        this.siteStartTime = Date.now();
+        this.siteStartTime = Date.now(); // High-precision start time
+        this.lastSaveTime = this.siteStartTime; // Track last save
       });
     } else {
       this.activeTab = null;
       this.siteStartTime = null;
+      this.lastSaveTime = null;
     }
   }
 
   async saveTimeSpent() {
     if (!this.activeTab || !this.siteStartTime) return;
 
-    const timeSpent = Date.now() - this.siteStartTime;
-    if (timeSpent < 2000) return; // Ignore visits less than 2 seconds
+    const currentTime = Date.now();
+    const timeSpent = currentTime - this.siteStartTime;
+    
+    // Only save if more than 2 seconds spent
+    if (timeSpent < 2000) return;
 
     const domain = this.extractDomain(this.activeTab.url);
     const today = new Date().toDateString();
@@ -115,26 +121,27 @@ class TimeTracker {
         timeData[domain] = {
           totalTime: 0,
           visits: 0,
-          lastVisit: Date.now(),
+          lastVisit: currentTime,
           title: this.activeTab.title || domain,
           favicon: this.activeTab.favIconUrl || '',
           dailyTime: {}
         };
       }
 
-      // Update total time and visits
+      // Update total time and visits using precise timing
       timeData[domain].totalTime += timeSpent;
       timeData[domain].visits += 1;
-      timeData[domain].lastVisit = Date.now();
+      timeData[domain].lastVisit = currentTime;
       timeData[domain].title = this.activeTab.title || domain;
 
-      // Update daily time
+      // Update daily time using precise timing
       if (!timeData[domain].dailyTime[today]) {
         timeData[domain].dailyTime[today] = 0;
       }
       timeData[domain].dailyTime[today] += timeSpent;
 
       await chrome.storage.local.set({ timeData });
+      this.lastSaveTime = currentTime;
     } catch (error) {
       console.error('Error saving time data:', error);
     }
@@ -150,16 +157,75 @@ class TimeTracker {
   }
 
   startPeriodicSave() {
-    // Save every 5 seconds for real-time accuracy
+    // Use chrome.alarms for more reliable background timing
+    chrome.alarms.create('timeTrackerSave', { 
+      delayInMinutes: 0.167, // 10 seconds = 0.167 minutes
+      periodInMinutes: 0.167 // Repeat every 10 seconds
+    });
+    
+    // Fallback setInterval for immediate response
     this.saveInterval = setInterval(async () => {
       if (this.isTracking && this.activeTab && this.siteStartTime) {
-        await this.saveTimeSpent();
-        this.siteStartTime = Date.now(); // Reset start time
+        // Calculate precise time since last save
+        const currentTime = Date.now();
+        const timeSinceLastSave = currentTime - (this.lastSaveTime || this.siteStartTime);
+        
+        // Only save if significant time has passed to avoid excessive storage writes
+        if (timeSinceLastSave >= 8000) { // 8 seconds minimum
+          await this.saveCurrentSession();
+        }
       }
-    }, 5000); // 5 seconds for real-time accuracy
+    }, 10000); // 10 seconds for backup saves
+  }
+
+  async saveCurrentSession() {
+    if (!this.activeTab || !this.siteStartTime) return;
+
+    const currentTime = Date.now();
+    const timeSinceLastSave = currentTime - (this.lastSaveTime || this.siteStartTime);
+    
+    if (timeSinceLastSave < 2000) return; // Don't save less than 2 seconds
+
+    const domain = this.extractDomain(this.activeTab.url);
+    const today = new Date().toDateString();
+
+    try {
+      const result = await chrome.storage.local.get(['timeData']);
+      const timeData = result.timeData || {};
+
+      // Initialize domain data if not exists
+      if (!timeData[domain]) {
+        timeData[domain] = {
+          totalTime: 0,
+          visits: 0,
+          lastVisit: currentTime,
+          title: this.activeTab.title || domain,
+          favicon: this.activeTab.favIconUrl || '',
+          dailyTime: {}
+        };
+      }
+
+      // Add incremental time since last save
+      timeData[domain].totalTime += timeSinceLastSave;
+      timeData[domain].lastVisit = currentTime;
+      timeData[domain].title = this.activeTab.title || domain;
+
+      // Update daily time incrementally
+      if (!timeData[domain].dailyTime[today]) {
+        timeData[domain].dailyTime[today] = 0;
+      }
+      timeData[domain].dailyTime[today] += timeSinceLastSave;
+
+      await chrome.storage.local.set({ timeData });
+      this.lastSaveTime = currentTime;
+    } catch (error) {
+      console.error('Error saving session data:', error);
+    }
   }
 
   stopPeriodicSave() {
+    // Clear both alarms and intervals
+    chrome.alarms.clear('timeTrackerSave');
     if (this.saveInterval) {
       clearInterval(this.saveInterval);
       this.saveInterval = null;
@@ -169,6 +235,8 @@ class TimeTracker {
   async startTracking() {
     this.isTracking = true;
     this.sessionStartTime = Date.now();
+    
+    console.log('TimeTracker: Starting tracking at', new Date(this.sessionStartTime).toISOString(), 'timestamp:', this.sessionStartTime);
     
     await chrome.storage.local.set({
       isTracking: true,
@@ -180,7 +248,7 @@ class TimeTracker {
   }
 
   async stopTracking() {
-    // Save current site time before stopping
+    // Save current site time before stopping using precise timing
     if (this.activeTab && this.siteStartTime) {
       await this.saveTimeSpent();
     }
@@ -189,6 +257,7 @@ class TimeTracker {
     this.sessionStartTime = null;
     this.activeTab = null;
     this.siteStartTime = null;
+    this.lastSaveTime = null;
     this.stopPeriodicSave();
 
     await chrome.storage.local.set({
@@ -202,13 +271,80 @@ class TimeTracker {
       return null;
     }
     
+    const currentTime = Date.now();
+    
     return {
       domain: this.extractDomain(this.activeTab.url),
       title: this.activeTab.title || this.extractDomain(this.activeTab.url),
       favicon: this.activeTab.favIconUrl || '',
-      currentTime: Date.now() - this.siteStartTime,
-      sessionTime: Date.now() - this.sessionStartTime
+      currentTime: currentTime - this.siteStartTime, // Precise current site time
+      sessionTime: currentTime - this.sessionStartTime, // Precise session time
+      timeSinceLastSave: currentTime - (this.lastSaveTime || this.siteStartTime) // Unsaved time
     };
+  }
+
+  // New method to get real-time session statistics
+  async getSessionStats() {
+    const currentTime = Date.now();
+    
+    if (!this.isTracking || !this.sessionStartTime) {
+      return { 
+        sessionTime: 0, 
+        todayTotal: await this.getTodayTotalFromStorage(),
+        isTracking: false
+      };
+    }
+
+    const sessionTime = currentTime - this.sessionStartTime;
+    
+    // Calculate today's total including current unsaved session
+    const today = new Date().toDateString();
+    const result = await chrome.storage.local.get(['timeData']);
+    const timeData = result.timeData || {};
+    
+    let todayTotal = 0;
+    Object.values(timeData).forEach(siteData => {
+      if (siteData.dailyTime && siteData.dailyTime[today]) {
+        todayTotal += siteData.dailyTime[today];
+      }
+    });
+    
+    // Add current unsaved session time to today's total
+    if (this.activeTab && this.siteStartTime) {
+      const unsavedTime = currentTime - (this.lastSaveTime || this.siteStartTime);
+      if (unsavedTime >= 0) {
+        todayTotal += unsavedTime;
+      }
+    }
+    
+    return {
+      sessionTime,
+      todayTotal,
+      isTracking: true,
+      currentSite: this.activeTab ? this.extractDomain(this.activeTab.url) : null,
+      debug: {
+        sessionStartTime: this.sessionStartTime,
+        currentTime: currentTime,
+        calculated: sessionTime,
+        lastSaveTime: this.lastSaveTime,
+        siteStartTime: this.siteStartTime
+      }
+    };
+  }
+
+  async getTodayTotalFromStorage() {
+    const today = new Date().toDateString();
+    const result = await chrome.storage.local.get(['timeData']);
+    const timeData = result.timeData || {};
+    
+    let todayTotal = 0;
+    Object.values(timeData).forEach(siteData => {
+      if (siteData.dailyTime && siteData.dailyTime[today]) {
+        todayTotal += siteData.dailyTime[today];
+      }
+    });
+    
+    return todayTotal;
   }
 
   getStatus() {
@@ -300,6 +436,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'getCurrentSession':
       sendResponse(timeTracker.getCurrentSessionData());
       break;
+    case 'getSessionStats':
+      timeTracker.getSessionStats().then(stats => {
+        if (stats.debug) {
+          console.log('TimeTracker: Session stats debug:', stats.debug);
+        }
+        sendResponse(stats);
+      });
+      return true;
     case 'startTracking':
       timeTracker.startTracking().then(() => sendResponse({ success: true }));
       return true;
@@ -318,5 +462,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'clearData':
       DataManager.clearAllData().then(() => sendResponse({ success: true }));
       return true;
+  }
+});
+
+// Handle chrome.alarms for reliable background timing
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === 'timeTrackerSave') {
+    if (timeTracker.isTracking && timeTracker.activeTab && timeTracker.siteStartTime) {
+      const currentTime = Date.now();
+      const timeSinceLastSave = currentTime - (timeTracker.lastSaveTime || timeTracker.siteStartTime);
+      
+      // Save if significant time has passed
+      if (timeSinceLastSave >= 8000) { // 8 seconds minimum
+        await timeTracker.saveCurrentSession();
+      }
+    }
   }
 }); 
