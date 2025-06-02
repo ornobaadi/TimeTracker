@@ -295,6 +295,12 @@ class TimeTracker {
 
     this.getCurrentActiveTab();
     this.startPeriodicSave();
+    
+    // If screenshots are enabled, request permission and start capture
+    if (screenshotManager.isScreenshotEnabled) {
+      console.log('TimeTracker: Screenshots enabled, requesting permission...');
+      await screenshotManager.initializeScreenCapture();
+    }
   }
 
   async stopTracking() {
@@ -329,6 +335,9 @@ class TimeTracker {
     this.lastActivityTime = null;
     this.sessionActiveTime = 0;
     this.stopPeriodicSave();
+    
+    // Stop screen capture when tracking stops
+    await screenshotManager.stopScreenCapture();
 
     await chrome.storage.local.set({
       isTracking: false,
@@ -469,6 +478,336 @@ class TimeTracker {
   }
 }
 
+// Screenshot management class
+class ScreenshotManager {
+  constructor() {
+    this.isScreenshotEnabled = false;
+    this.screenshotInterval = 60000; // 1 minute in milliseconds
+    this.offscreenDocumentCreated = false;
+    this.maxStoredScreenshots = 100; // Limit stored screenshots to prevent storage overflow
+    this.isScreenCaptureActive = false;
+    this.permissionGranted = false;
+  }
+
+  async init() {
+    // Get screenshot settings from storage
+    const result = await chrome.storage.local.get(['screenshotEnabled', 'screenshotInterval']);
+    this.isScreenshotEnabled = result.screenshotEnabled || false;
+    this.screenshotInterval = result.screenshotInterval || 60000;
+    
+    // Only start automatic screenshots if tracking is already active
+    if (this.isScreenshotEnabled && timeTracker.isTracking) {
+      await this.initializeScreenCapture();
+    } else if (this.isScreenshotEnabled) {
+      // If screenshots are enabled but tracking isn't active, just start the alarm
+      await this.startScreenshots();
+    }
+  }
+
+  async initializeScreenCapture() {
+    if (this.isScreenCaptureActive) {
+      console.log('Screenshot: Screen capture already active');
+      return { success: true };
+    }
+
+    try {
+      await this.createOffscreenDocument();
+      
+      // Request initial screen capture permission
+      console.log('Screenshot: Requesting screen capture permission...');
+      const result = await this.requestScreenCapturePermission();
+      
+      if (result.success) {
+        this.isScreenCaptureActive = true;
+        this.permissionGranted = true;
+        await this.startScreenshots();
+        console.log('Screenshot: Screen capture initialized successfully');
+        return { success: true };
+      } else {
+        console.error('Screenshot: Failed to get permission:', result.error);
+        return { success: false, error: result.error };
+      }
+    } catch (error) {
+      console.error('Screenshot: Failed to initialize screen capture:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async stopScreenCapture() {
+    if (!this.isScreenCaptureActive) return;
+    
+    console.log('Screenshot: Stopping screen capture...');
+    this.isScreenCaptureActive = false;
+    this.permissionGranted = false;
+    
+    // Tell offscreen document to stop capture
+    if (this.offscreenDocumentCreated) {
+      chrome.runtime.sendMessage({
+        action: 'stopScreenCapture',
+        source: 'background'
+      }).catch(() => {
+        // Ignore errors if offscreen document is not responsive
+      });
+    }
+    
+    chrome.alarms.clear('takeScreenshot');
+    console.log('Screenshot: Screen capture stopped');
+  }
+
+  async requestScreenCapturePermission() {
+    return new Promise((resolve) => {
+      const messageListener = (message, sender, sendResponse) => {
+        if (message.action === 'permissionResult') {
+          chrome.runtime.onMessage.removeListener(messageListener);
+          resolve({
+            success: message.success,
+            error: message.error
+          });
+        }
+      };
+      
+      chrome.runtime.onMessage.addListener(messageListener);
+      
+      // Request permission from offscreen document
+      chrome.runtime.sendMessage({
+        action: 'requestPermission',
+        source: 'background'
+      }).catch(() => {
+        // If direct message fails, the offscreen document will still receive it
+      });
+      
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        chrome.runtime.onMessage.removeListener(messageListener);
+        resolve({ success: false, error: 'Permission request timeout' });
+      }, 30000);
+    });
+  }
+
+  async takeScreenshot() {
+    if (!this.isScreenCaptureActive) {
+      // Try to initialize if not active
+      const initResult = await this.initializeScreenCapture();
+      if (!initResult.success) {
+        return { success: false, error: 'Screen capture not available: ' + initResult.error };
+      }
+    }
+
+    try {
+      await this.createOffscreenDocument();
+      
+      return new Promise((resolve) => {
+        const messageListener = (message, sender, sendResponse) => {
+          if (message.action === 'screenshotResult') {
+            chrome.runtime.onMessage.removeListener(messageListener);
+            if (message.success) {
+              this.saveScreenshot(message.screenshot, message.timestamp)
+                .then(() => resolve({ success: true, timestamp: message.timestamp }))
+                .catch((error) => resolve({ success: false, error: error.message }));
+            } else {
+              // If screenshot failed due to permission, try to reinitialize
+              if (message.error.includes('permission') || message.error.includes('Permission')) {
+                this.isScreenCaptureActive = false;
+                this.permissionGranted = false;
+              }
+              resolve({ success: false, error: message.error });
+            }
+          }
+        };
+        
+        chrome.runtime.onMessage.addListener(messageListener);
+        
+        // Send message to capture screenshot using existing stream
+        chrome.runtime.sendMessage({
+          action: 'captureScreenshotFromStream',
+          source: 'background'
+        }).catch(() => {
+          // If direct message fails, the offscreen document will still receive it
+        });
+        
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          chrome.runtime.onMessage.removeListener(messageListener);
+          resolve({ success: false, error: 'Screenshot capture timeout' });
+        }, 10000);
+      });
+      
+    } catch (error) {
+      console.error('Screenshot capture failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async createOffscreenDocument() {
+    if (this.offscreenDocumentCreated) return;
+    
+    try {
+      // Check if offscreen document already exists
+      const existingContexts = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT']
+      });
+      
+      if (existingContexts.length > 0) {
+        this.offscreenDocumentCreated = true;
+        console.log('Offscreen document already exists');
+        return;
+      }
+      
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: ['DISPLAY_MEDIA'],
+        justification: 'Taking screenshots for time tracking purposes'
+      });
+      this.offscreenDocumentCreated = true;
+      console.log('Offscreen document created successfully');
+    } catch (error) {
+      console.error('Failed to create offscreen document:', error);
+      this.offscreenDocumentCreated = false;
+      throw error;
+    }
+  }
+
+  async closeOffscreenDocument() {
+    if (!this.offscreenDocumentCreated) return;
+    
+    try {
+      await chrome.offscreen.closeDocument();
+      this.offscreenDocumentCreated = false;
+    } catch (error) {
+      console.error('Failed to close offscreen document:', error);
+    }
+  }
+
+  async saveScreenshot(screenshotData, timestamp) {
+    try {
+      // Get existing screenshots
+      const result = await chrome.storage.local.get(['screenshots']);
+      let screenshots = result.screenshots || [];
+      
+      // Add new screenshot
+      const screenshotEntry = {
+        id: `screenshot_${timestamp}`,
+        data: screenshotData,
+        timestamp: timestamp,
+        date: new Date(timestamp).toDateString(),
+        size: screenshotData.length
+      };
+      
+      screenshots.push(screenshotEntry);
+      
+      // Limit the number of stored screenshots
+      if (screenshots.length > this.maxStoredScreenshots) {
+        screenshots = screenshots.slice(-this.maxStoredScreenshots);
+      }
+      
+      await chrome.storage.local.set({ screenshots });
+      console.log(`Screenshot saved: ${new Date(timestamp).toLocaleString()}`);
+      
+    } catch (error) {
+      console.error('Failed to save screenshot:', error);
+      throw error;
+    }
+  }
+
+  async startScreenshots() {
+    if (!this.isScreenshotEnabled) return;
+    
+    // Create alarm for periodic screenshots
+    chrome.alarms.create('takeScreenshot', {
+      delayInMinutes: this.screenshotInterval / 60000, // Convert to minutes
+      periodInMinutes: this.screenshotInterval / 60000
+    });
+    
+    console.log(`Screenshot capture started - interval: ${this.screenshotInterval / 1000}s`);
+  }
+
+  async stopScreenshots() {
+    chrome.alarms.clear('takeScreenshot');
+    await this.closeOffscreenDocument();
+    console.log('Screenshot capture stopped');
+  }
+
+  async enableScreenshots(interval = 60000) {
+    this.isScreenshotEnabled = true;
+    this.screenshotInterval = interval;
+    
+    await chrome.storage.local.set({
+      screenshotEnabled: true,
+      screenshotInterval: interval
+    });
+    
+    // If tracking is active, initialize screen capture immediately
+    if (timeTracker.isTracking) {
+      await this.initializeScreenCapture();
+    } else {
+      // If not tracking, just start the alarm (permission will be requested when tracking starts)
+      await this.startScreenshots();
+    }
+  }
+
+  async disableScreenshots() {
+    this.isScreenshotEnabled = false;
+    
+    await chrome.storage.local.set({
+      screenshotEnabled: false
+    });
+    
+    await this.stopScreenCapture();
+  }
+
+  async getStoredScreenshots(limit = 50) {
+    const result = await chrome.storage.local.get(['screenshots']);
+    const screenshots = result.screenshots || [];
+    
+    // Return latest screenshots with metadata only (no data for listing)
+    return screenshots.slice(-limit).map(screenshot => ({
+      id: screenshot.id,
+      timestamp: screenshot.timestamp,
+      date: screenshot.date,
+      size: screenshot.size
+    }));
+  }
+
+  async getScreenshot(screenshotId) {
+    const result = await chrome.storage.local.get(['screenshots']);
+    const screenshots = result.screenshots || [];
+    
+    return screenshots.find(screenshot => screenshot.id === screenshotId);
+  }
+
+  async deleteOldScreenshots(daysToKeep = 7) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+    
+    const result = await chrome.storage.local.get(['screenshots']);
+    const screenshots = result.screenshots || [];
+    
+    const filteredScreenshots = screenshots.filter(screenshot => 
+      new Date(screenshot.timestamp) > cutoffDate
+    );
+    
+    await chrome.storage.local.set({ screenshots: filteredScreenshots });
+    
+    const deletedCount = screenshots.length - filteredScreenshots.length;
+    console.log(`Deleted ${deletedCount} old screenshots`);
+    
+    return deletedCount;
+  }
+
+  async clearAllScreenshots() {
+    await chrome.storage.local.set({ screenshots: [] });
+    console.log('All screenshots cleared');
+  }
+
+  getStatus() {
+    return {
+      isEnabled: this.isScreenshotEnabled,
+      interval: this.screenshotInterval,
+      intervalMinutes: this.screenshotInterval / 60000
+    };
+  }
+}
+
 // Data management utilities
 class DataManager {
   static async getTodayData() {
@@ -543,6 +882,10 @@ class DataManager {
 // Initialize tracker
 const timeTracker = new TimeTracker();
 
+// Initialize screenshot manager
+const screenshotManager = new ScreenshotManager();
+screenshotManager.init();
+
 // Handle messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   switch (request.action) {
@@ -608,6 +951,39 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'clearData':
       DataManager.clearAllData().then(() => sendResponse({ success: true }));
       return true;
+    // Screenshot related actions
+    case 'getScreenshotStatus':
+      sendResponse(screenshotManager.getStatus());
+      break;
+    case 'enableScreenshots':
+      screenshotManager.enableScreenshots(request.interval).then(() => 
+        sendResponse({ success: true })
+      );
+      return true;
+    case 'disableScreenshots':
+      screenshotManager.disableScreenshots().then(() => 
+        sendResponse({ success: true })
+      );
+      return true;
+    case 'takeScreenshot':
+      screenshotManager.takeScreenshot().then(sendResponse);
+      return true;
+    case 'getStoredScreenshots':
+      screenshotManager.getStoredScreenshots(request.limit).then(sendResponse);
+      return true;
+    case 'getScreenshot':
+      screenshotManager.getScreenshot(request.screenshotId).then(sendResponse);
+      return true;
+    case 'deleteOldScreenshots':
+      screenshotManager.deleteOldScreenshots(request.days).then(result => 
+        sendResponse({ deletedCount: result })
+      );
+      return true;
+    case 'clearAllScreenshots':
+      screenshotManager.clearAllScreenshots().then(() => 
+        sendResponse({ success: true })
+      );
+      return true;
   }
 });
 
@@ -622,6 +998,32 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       if (timeSinceLastSave >= 5000) { // Reduced to 5 seconds minimum
         await timeTracker.saveCurrentSession();
       }
+    }
+  } else if (alarm.name === 'takeScreenshot') {
+    // Take periodic screenshot
+    if (screenshotManager.isScreenshotEnabled) {
+      // Only take screenshot if tracking is active (which means permission should be granted)
+      if (timeTracker.isTracking && screenshotManager.isScreenCaptureActive) {
+        const result = await screenshotManager.takeScreenshot();
+        if (result.success) {
+          console.log('Automatic screenshot taken:', new Date(result.timestamp).toLocaleString());
+        } else {
+          console.error('Automatic screenshot failed:', result.error);
+        }
+      } else if (timeTracker.isTracking && !screenshotManager.isScreenCaptureActive) {
+        // Try to initialize screen capture if tracking is active but capture isn't
+        console.log('Attempting to initialize screen capture for automatic screenshot...');
+        const initResult = await screenshotManager.initializeScreenCapture();
+        if (initResult.success) {
+          const result = await screenshotManager.takeScreenshot();
+          if (result.success) {
+            console.log('Automatic screenshot taken after initialization:', new Date(result.timestamp).toLocaleString());
+          }
+        } else {
+          console.error('Failed to initialize screen capture for automatic screenshot:', initResult.error);
+        }
+      }
+      // If tracking is not active, skip automatic screenshots
     }
   }
 }); 

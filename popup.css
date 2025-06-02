@@ -514,4 +514,122 @@ body {
     body {
         width: 360px;
     }
+}
+
+/* Screenshot Section */
+.screenshot-section {
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-light);
+    border-bottom: 1px solid var(--border-light);
+    padding: 16px 20px;
+}
+
+.screenshot-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.screenshot-toggle {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.screenshot-toggle span {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.toggle-btn {
+    background: var(--border);
+    border: 1px solid var(--border-light);
+    border-radius: 16px;
+    padding: 4px 12px;
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.toggle-btn:hover {
+    background: var(--border-light);
+}
+
+.toggle-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.toggle-text {
+    font-size: 11px;
+    letter-spacing: 0.5px;
+}
+
+.screenshot-interval {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+}
+
+.screenshot-interval label {
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.screenshot-interval select {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.screenshot-interval select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.screenshot-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.screenshot-btn {
+    flex: 1;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.screenshot-btn:hover {
+    background: var(--border);
+    transform: translateY(-1px);
+}
+
+.screenshot-btn:active {
+    transform: translateY(0);
+}
+
+.screenshot-btn.primary {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.screenshot-btn.primary:hover {
+    background: rgba(52, 199, 89, 0.9);
 } 

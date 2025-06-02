@@ -8,7 +8,9 @@
     "tabs",
     "storage",
     "background",
-    "alarms"
+    "alarms",
+    "desktopCapture",
+    "offscreen"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -29,6 +31,12 @@
         "content.js"
       ],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["offscreen.html"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

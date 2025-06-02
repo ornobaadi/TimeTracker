@@ -54,6 +54,32 @@
             </div>
         </section>
 
+        <!-- Screenshot Settings -->
+        <section class="screenshot-section">
+            <div class="section-label">SCREENSHOTS</div>
+            <div class="screenshot-controls">
+                <div class="screenshot-toggle">
+                    <span>Auto Screenshots</span>
+                    <button class="toggle-btn" id="screenshotToggleBtn">
+                        <span class="toggle-text" id="screenshotToggleText">OFF</span>
+                    </button>
+                </div>
+                <div class="screenshot-interval" id="screenshotIntervalDiv" style="display: none;">
+                    <label for="screenshotInterval">Interval (minutes):</label>
+                    <select id="screenshotInterval">
+                        <option value="60000">1 minute</option>
+                        <option value="120000">2 minutes</option>
+                        <option value="300000">5 minutes</option>
+                        <option value="600000">10 minutes</option>
+                    </select>
+                </div>
+                <div class="screenshot-actions">
+                    <button class="screenshot-btn" id="takeScreenshotBtn">Take Now</button>
+                    <button class="screenshot-btn" id="viewScreenshotsBtn">View Gallery</button>
+                </div>
+            </div>
+        </section>
+
         <!-- Website List -->
         <section class="sites-section">
             <div class="sites-list-clean" id="sitesList">

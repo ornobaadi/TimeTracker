@@ -13,6 +13,7 @@ class TimeTrackerUI {
     async init() {
         this.setupEventListeners();
         await this.updateStatus();
+        await this.updateScreenshotStatus();
         await this.loadData();
         this.startTimerUpdates();
         this.startLastUpdatedTimer();
@@ -37,11 +38,37 @@ class TimeTrackerUI {
         document.getElementById('dashboardBtn').addEventListener('click', () => {
             this.showNotification('Dashboard feature coming soon!', 'info');
         });
+
+        // Screenshot controls
+        document.getElementById('screenshotToggleBtn').addEventListener('click', () => {
+            this.toggleScreenshots();
+        });
+
+        document.getElementById('screenshotInterval').addEventListener('change', (e) => {
+            this.updateScreenshotInterval(parseInt(e.target.value));
+        });
+
+        document.getElementById('takeScreenshotBtn').addEventListener('click', () => {
+            this.takeScreenshotNow();
+        });
+
+        document.getElementById('viewScreenshotsBtn').addEventListener('click', () => {
+            this.viewStoredScreenshots();
+        });
     }
 
     async sendMessage(message) {
         return new Promise((resolve) => {
-            chrome.runtime.sendMessage(message, resolve);
+            console.log('Popup: Sending message:', message);
+            chrome.runtime.sendMessage(message, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error('Popup: Runtime error:', chrome.runtime.lastError);
+                    resolve(null);
+                } else {
+                    console.log('Popup: Received response:', response);
+                    resolve(response);
+                }
+            });
         });
     }
 
@@ -533,6 +560,360 @@ class TimeTrackerUI {
             clearInterval(this.lastUpdateInterval);
             this.lastUpdateInterval = null;
         }
+    }
+
+    // Screenshot functionality
+    async updateScreenshotStatus() {
+        try {
+            const status = await this.sendMessage({ action: 'getScreenshotStatus' });
+            this.updateScreenshotUI(status);
+        } catch (error) {
+            console.error('Error updating screenshot status:', error);
+        }
+    }
+
+    updateScreenshotUI(status) {
+        const toggleBtn = document.getElementById('screenshotToggleBtn');
+        const toggleText = document.getElementById('screenshotToggleText');
+        const intervalDiv = document.getElementById('screenshotIntervalDiv');
+        const intervalSelect = document.getElementById('screenshotInterval');
+
+        if (status.isEnabled) {
+            toggleBtn.classList.add('active');
+            toggleText.textContent = 'ON';
+            intervalDiv.style.display = 'flex';
+            intervalSelect.value = status.interval.toString();
+        } else {
+            toggleBtn.classList.remove('active');
+            toggleText.textContent = 'OFF';
+            intervalDiv.style.display = 'none';
+        }
+    }
+
+    async toggleScreenshots() {
+        try {
+            const currentStatus = await this.sendMessage({ action: 'getScreenshotStatus' });
+            
+            if (!currentStatus) {
+                throw new Error('Failed to get current screenshot status');
+            }
+            
+            if (currentStatus.isEnabled) {
+                const result = await this.sendMessage({ action: 'disableScreenshots' });
+                if (result && result.success) {
+                    this.showNotification('Screenshots disabled', 'info');
+                } else {
+                    throw new Error('Failed to disable screenshots');
+                }
+            } else {
+                const interval = parseInt(document.getElementById('screenshotInterval').value) || 60000;
+                const result = await this.sendMessage({ action: 'enableScreenshots', interval });
+                if (result && result.success) {
+                    // Check if tracking is active
+                    const trackingStatus = await this.sendMessage({ action: 'getStatus' });
+                    if (trackingStatus && trackingStatus.isTracking) {
+                        this.showNotification('Screenshots enabled! You may be prompted for screen sharing permission.', 'success');
+                    } else {
+                        this.showNotification('Screenshots enabled! Permission will be requested when you start tracking.', 'success');
+                    }
+                } else {
+                    throw new Error('Failed to enable screenshots');
+                }
+            }
+            
+            await this.updateScreenshotStatus();
+        } catch (error) {
+            console.error('Error toggling screenshots:', error);
+            this.showNotification(`Failed to toggle screenshots: ${error.message}`, 'error');
+        }
+    }
+
+    async updateScreenshotInterval(interval) {
+        try {
+            const currentStatus = await this.sendMessage({ action: 'getScreenshotStatus' });
+            
+            if (currentStatus.isEnabled) {
+                await this.sendMessage({ action: 'enableScreenshots', interval });
+                this.showNotification(`Screenshot interval updated to ${interval / 60000} minute(s)`, 'success');
+            }
+        } catch (error) {
+            console.error('Error updating screenshot interval:', error);
+            this.showNotification('Failed to update interval', 'error');
+        }
+    }
+
+    async takeScreenshotNow() {
+        try {
+            const takeBtn = document.getElementById('takeScreenshotBtn');
+            takeBtn.textContent = 'Taking...';
+            takeBtn.disabled = true;
+            
+            const result = await this.sendMessage({ action: 'takeScreenshot' });
+            
+            // Add better error handling for undefined or invalid responses
+            if (!result) {
+                throw new Error('No response received from background script');
+            }
+            
+            if (result.success) {
+                this.showNotification('Screenshot captured successfully!', 'success');
+            } else {
+                this.showNotification(`Screenshot failed: ${result.error || 'Unknown error'}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error taking screenshot:', error);
+            this.showNotification(`Failed to take screenshot: ${error.message}`, 'error');
+        } finally {
+            const takeBtn = document.getElementById('takeScreenshotBtn');
+            takeBtn.textContent = 'Take Now';
+            takeBtn.disabled = false;
+        }
+    }
+
+    async viewStoredScreenshots() {
+        try {
+            const screenshots = await this.sendMessage({ action: 'getStoredScreenshots', limit: 20 });
+            
+            if (!screenshots) {
+                throw new Error('Failed to load screenshots');
+            }
+            
+            if (screenshots.length === 0) {
+                this.showNotification('No screenshots saved yet', 'info');
+                return;
+            }
+
+            // Create a modal-like overlay to show screenshots
+            this.showScreenshotViewer(screenshots);
+        } catch (error) {
+            console.error('Error viewing screenshots:', error);
+            this.showNotification(`Failed to load screenshots: ${error.message}`, 'error');
+        }
+    }
+
+    async showScreenshotViewer(screenshots) {
+        // Remove existing viewer if any
+        const existingViewer = document.getElementById('screenshotViewer');
+        if (existingViewer) {
+            existingViewer.remove();
+        }
+
+        // Create screenshot viewer overlay
+        const viewerHTML = `
+            <div id="screenshotViewer" style="
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.8);
+                z-index: 2000;
+                display: flex;
+                flex-direction: column;
+                padding: 20px;
+                color: white;
+            ">
+                <div style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 20px;
+                ">
+                    <h3 style="margin: 0; font-size: 18px;">📸 Saved Screenshots (${screenshots.length})</h3>
+                    <button id="closeScreenshotViewer" style="
+                        background: #ff3b30;
+                        color: white;
+                        border: none;
+                        border-radius: 50%;
+                        width: 30px;
+                        height: 30px;
+                        cursor: pointer;
+                        font-size: 16px;
+                    ">✕</button>
+                </div>
+                <div id="screenshotGrid" style="
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                    gap: 15px;
+                    max-height: 400px;
+                    overflow-y: auto;
+                    padding: 10px;
+                ">
+                    <!-- Screenshots will be loaded here -->
+                </div>
+                <div style="
+                    margin-top: 15px;
+                    text-align: center;
+                    font-size: 12px;
+                    color: #ccc;
+                ">
+                    Click on a screenshot to view full size. Screenshots are stored locally in your browser.
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', viewerHTML);
+
+        // Add close handler
+        document.getElementById('closeScreenshotViewer').addEventListener('click', () => {
+            document.getElementById('screenshotViewer').remove();
+        });
+
+        // Load screenshot thumbnails
+        await this.loadScreenshotThumbnails(screenshots);
+    }
+
+    async loadScreenshotThumbnails(screenshotList) {
+        const grid = document.getElementById('screenshotGrid');
+        grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center;">Loading screenshots...</div>';
+
+        try {
+            // Load actual screenshot data for thumbnails
+            const screenshotPromises = screenshotList.slice().reverse().map(async (screenshot) => {
+                const fullScreenshot = await this.sendMessage({ 
+                    action: 'getScreenshot', 
+                    screenshotId: screenshot.id 
+                });
+                return { ...screenshot, data: fullScreenshot?.data };
+            });
+
+            const screenshotsWithData = await Promise.all(screenshotPromises);
+
+            grid.innerHTML = '';
+
+            screenshotsWithData.forEach((screenshot) => {
+                if (!screenshot.data) return;
+
+                const screenshotElement = document.createElement('div');
+                screenshotElement.style.cssText = `
+                    background: white;
+                    border-radius: 8px;
+                    padding: 10px;
+                    cursor: pointer;
+                    transition: transform 0.2s;
+                `;
+
+                screenshotElement.innerHTML = `
+                    <img src="${screenshot.data}" style="
+                        width: 100%;
+                        height: 120px;
+                        object-fit: cover;
+                        border-radius: 4px;
+                        margin-bottom: 8px;
+                    " alt="Screenshot">
+                    <div style="color: #333; font-size: 11px; font-weight: 500;">
+                        ${new Date(screenshot.timestamp).toLocaleString()}
+                    </div>
+                    <div style="color: #666; font-size: 10px;">
+                        ${Math.round(screenshot.size / 1024)}KB
+                    </div>
+                `;
+
+                screenshotElement.addEventListener('click', () => {
+                    this.viewFullScreenshot(screenshot);
+                });
+
+                screenshotElement.addEventListener('mouseenter', () => {
+                    screenshotElement.style.transform = 'scale(1.05)';
+                });
+
+                screenshotElement.addEventListener('mouseleave', () => {
+                    screenshotElement.style.transform = 'scale(1)';
+                });
+
+                grid.appendChild(screenshotElement);
+            });
+
+        } catch (error) {
+            console.error('Error loading screenshot thumbnails:', error);
+            grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #ff6b6b;">Failed to load screenshots</div>';
+        }
+    }
+
+    viewFullScreenshot(screenshot) {
+        // Create full-size viewer
+        const fullViewerHTML = `
+            <div id="fullScreenshotViewer" style="
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.95);
+                z-index: 3000;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            ">
+                <div style="
+                    position: absolute;
+                    top: 20px;
+                    right: 20px;
+                    display: flex;
+                    gap: 10px;
+                ">
+                    <button id="downloadScreenshot" style="
+                        background: #007aff;
+                        color: white;
+                        border: none;
+                        border-radius: 6px;
+                        padding: 8px 16px;
+                        cursor: pointer;
+                        font-size: 14px;
+                    ">Download</button>
+                    <button id="closeFullViewer" style="
+                        background: #ff3b30;
+                        color: white;
+                        border: none;
+                        border-radius: 6px;
+                        padding: 8px 16px;
+                        cursor: pointer;
+                        font-size: 14px;
+                    ">Close</button>
+                </div>
+                <img src="${screenshot.data}" style="
+                    max-width: 90%;
+                    max-height: 80%;
+                    object-fit: contain;
+                    border-radius: 8px;
+                    box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
+                " alt="Screenshot">
+                <div style="
+                    color: white;
+                    text-align: center;
+                    margin-top: 15px;
+                    font-size: 14px;
+                ">
+                    <div>${new Date(screenshot.timestamp).toLocaleString()}</div>
+                    <div style="font-size: 12px; opacity: 0.7; margin-top: 5px;">
+                        Size: ${Math.round(screenshot.size / 1024)}KB
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', fullViewerHTML);
+
+        // Add event handlers
+        document.getElementById('closeFullViewer').addEventListener('click', () => {
+            document.getElementById('fullScreenshotViewer').remove();
+        });
+
+        document.getElementById('downloadScreenshot').addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = screenshot.data;
+            link.download = `timetracker-screenshot-${new Date(screenshot.timestamp).toISOString().replace(/[:.]/g, '-')}.jpg`;
+            link.click();
+        });
+
+        // Close on backdrop click
+        document.getElementById('fullScreenshotViewer').addEventListener('click', (e) => {
+            if (e.target.id === 'fullScreenshotViewer') {
+                document.getElementById('fullScreenshotViewer').remove();
+            }
+        });
     }
 }
 
